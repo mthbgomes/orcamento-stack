@@ -1,36 +1,42 @@
 # Estágio 1: Pegar os arquivos da Evolution API
 FROM evoapicloud/evolution-api:v2.3.7 AS evo_source
 
-# Estágio 2: Imagem Final baseada no n8n (Debian)
-FROM n8nio/n8n:2.7.1
+# Estágio 2: Imagem Final baseada em Node Alpine (Leve e com apk funcionando)
+FROM node:20-alpine
 
 USER root
 
-# 1. Instalar Nginx e dependências (Mudança de apk para apt-get)
-# procps é necessário para lidar com processos
-RUN apt-get update && \
-    apt-get install -y nginx ffmpeg curl procps && \
-    rm -rf /var/lib/apt/lists/*
+# 1. Instalar Nginx e dependências do sistema
+# graphicsmagick é recomendado para o n8n lidar com imagens
+RUN apk add --no-cache nginx ffmpeg curl git graphicsmagick
 
-# 2. Configurar Evolution API
+# 2. Instalar o n8n manualmente na versão desejada
+RUN npm install -g n8n@2.7.1
+
+# 3. Configurar Evolution API
 WORKDIR /evolution
+# Copia a aplicação Evolution pronta
 COPY --from=evo_source /evolution /evolution
 
-# 3. Configurar Nginx
-# No Debian, o caminho padrão é /etc/nginx/conf.d/default.conf
-# Removemos o padrão se existir
-RUN rm -f /etc/nginx/sites-enabled/default
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Tenta reconstruir dependências nativas caso haja incompatibilidade de sistema
+# (Isso previne erros de 'musl' vs 'glibc')
+RUN npm rebuild
 
-# 4. Script de Inicialização
+# 4. Configurar Nginx
+RUN mkdir -p /run/nginx
+# Remove config padrão e adiciona a nossa
+RUN rm -f /etc/nginx/http.d/default.conf
+COPY nginx.conf /etc/nginx/http.d/default.conf
+
+# 5. Script de Inicialização
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Voltamos para o diretório do n8n
+# Define diretório de trabalho padrão
 WORKDIR /home/node
 
-# Expõe a porta
+# Porta do Render
 EXPOSE 10000
 
-# Define o shell como bash para garantir compatibilidade do script
-ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
+# Inicia tudo
+ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]
